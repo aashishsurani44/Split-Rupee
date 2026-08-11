@@ -326,10 +326,14 @@ select.input-field {
 .modal-sheet { background: var(--card); width: 100%; max-width: 480px; max-height: 88vh; border-radius: 22px 22px 0 0; display: flex; flex-direction: column; padding-bottom: var(--safe-bottom); }
 .modal-sheet-tall { max-height: 92vh; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 18px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.modal-header-actions { display: flex; align-items: center; gap: 8px; }
 .modal-header h3 { font-size: 17px; }
 .modal-close { width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--bg); color: var(--text-secondary); font-size: 14px; }
 .modal-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
 .modal-footer { padding: 12px 18px calc(16px + var(--safe-bottom)); border-top: 1px solid var(--border); flex-shrink: 0; }
+
+.category-bar-track { height: 6px; background: var(--bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.category-bar-fill { height: 100%; border-radius: 4px; min-width: 3px; }
 
 /* ---------- Toast ---------- */
 
