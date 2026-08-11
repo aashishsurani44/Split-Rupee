@@ -1451,29 +1451,6 @@ function savePersonalExpense() {
     .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
 }
 
-  // Step 1 (if splitting): add the matching expense to the group first.
-  const groupWrite = splitEnabled
-    ? db.ref('expenses/' + splitGroupId).push().set({
-        description, amount, category, date, paidBy: currentUser.uid, splitAmong,
-        type: 'expense', createdBy: currentUser.uid, createdAt: firebase.database.ServerValue.TIMESTAMP
-      })
-    : Promise.resolve();
-
-  groupWrite.then(() => {
-    const payload = { date, description, category, paymentMode, amount, splitGroupId: splitGroupId || null };
-    return editingPersonalExpenseId
-      ? db.ref('personalExpenses/' + currentUser.uid + '/' + editingPersonalExpenseId).update(payload)
-      : db.ref('personalExpenses/' + currentUser.uid).push().set({ ...payload, createdAt: firebase.database.ServerValue.TIMESTAMP });
-  })
-    .then(() => {
-      hideModal('addPersonalExpenseModal');
-      showToast(editingPersonalExpenseId ? 'Expense updated' : 'Expense added');
-      editingPersonalExpenseId = null;
-    })
-    .catch(err => showToast(err.message, true))
-    .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
-
-
 // ---------- Personal expense detail ----------
 
 function openPersonalExpenseDetail(id) {
