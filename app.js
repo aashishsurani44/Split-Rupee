@@ -1449,7 +1449,7 @@ function savePersonalExpense() {
     })
     .catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
-}
+
 
   // Step 1 (if splitting): add the matching expense to the group first.
   const groupWrite = splitEnabled
