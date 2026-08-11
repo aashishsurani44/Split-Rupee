@@ -335,6 +335,9 @@ select.input-field {
 .category-bar-track { height: 6px; background: var(--bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
 .category-bar-fill { height: 100%; border-radius: 4px; min-width: 3px; }
 
+.checkbox-label-row { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); font-size: 14px; cursor: pointer; }
+.checkbox-label-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0; }
+
 /* ---------- Toast ---------- */
 
 .toast {
