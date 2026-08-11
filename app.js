@@ -49,6 +49,9 @@ let groupMembersData = {};
 let categoriesCache = {};
 let expensesCache = {};
 let currentSplitType = 'equal';
+let editingExpenseId = null;
+let currentDetailExpenseId = null;
+let selectedNewMembers = new Set();
 let groupDataRef = null;
 let groupExpensesRef = null;
 let groupCategoriesRef = null;
@@ -247,8 +250,14 @@ function wireStaticEvents() {
   // --- Group screen ---
   document.getElementById('groupBackBtn').addEventListener('click', leaveGroupScreen);
   document.getElementById('groupDeniedBackBtn').addEventListener('click', leaveGroupScreen);
-  document.getElementById('groupMembersBtn').addEventListener('click', () => showModal('membersModal'));
+  document.getElementById('groupMembersBtn').addEventListener('click', () => {
+    document.getElementById('addMembersSection').classList.add('hidden');
+    showModal('membersModal');
+  });
   document.getElementById('closeMembersModal').addEventListener('click', () => hideModal('membersModal'));
+  document.getElementById('showAddMembersBtn').addEventListener('click', openAddMembersPicker);
+  document.getElementById('addMembersSearchInput').addEventListener('input', renderAddMembersList);
+  document.getElementById('confirmAddMembersBtn').addEventListener('click', confirmAddMembers);
   document.getElementById('settleBtn').addEventListener('click', openSettleModal);
   document.getElementById('closeSettleModal').addEventListener('click', () => hideModal('settleModal'));
 
@@ -276,6 +285,12 @@ function wireStaticEvents() {
 
   // --- Expense detail modal ---
   document.getElementById('closeDetailModal').addEventListener('click', () => hideModal('expenseDetailModal'));
+  document.getElementById('editExpenseBtn').addEventListener('click', () => {
+    if (currentDetailExpenseId) { hideModal('expenseDetailModal'); openEditExpenseModal(currentDetailExpenseId); }
+  });
+  document.getElementById('deleteExpenseBtn').addEventListener('click', () => {
+    if (currentDetailExpenseId) deleteExpense(currentDetailExpenseId);
+  });
 
   // --- Account screen ---
   document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -659,6 +674,70 @@ function renderMembersModalList() {
       ${avatarHtml(u.name)}
       <div class="list-row-info"><strong>${escapeHtml(u.name)}${uid === currentUser.uid ? ' (You)' : ''}</strong><span>${escapeHtml(u.email || '')}</span></div>
     </div>`).join('');
+
+  const isMember = !!(groupData && groupData.members && groupData.members[currentUser.uid]);
+  document.getElementById('showAddMembersBtn').classList.toggle('hidden', !isMember);
+}
+
+// ---------- Add members to an existing group ----------
+
+function openAddMembersPicker() {
+  selectedNewMembers = new Set();
+  document.getElementById('addMembersSearchInput').value = '';
+  document.getElementById('addMembersSection').classList.remove('hidden');
+  db.ref('users').once('value').then(snap => { allUsersCache = snap.val() || {}; renderAddMembersList(); });
+}
+
+function renderAddMembersList() {
+  const container = document.getElementById('addMembersListContainer');
+  const search = document.getElementById('addMembersSearchInput').value.toLowerCase();
+  const candidates = Object.entries(allUsersCache).filter(([uid]) => !groupMembersData[uid]);
+
+  if (candidates.length === 0) { container.innerHTML = '<p class="empty-state-sm">Everyone is already in this group.</p>'; return; }
+
+  container.innerHTML = candidates.map(([uid, u]) => {
+    if (search && !((u.name || '').toLowerCase().includes(search) || (u.email || '').toLowerCase().includes(search))) return '';
+    return `
+      <label class="member-row">
+        <input type="checkbox" data-uid="${uid}" ${selectedNewMembers.has(uid) ? 'checked' : ''} />
+        ${avatarHtml(u.name)}
+        <div class="list-row-info"><strong>${escapeHtml(u.name)}</strong><span>${escapeHtml(u.email || '')}</span></div>
+      </label>`;
+  }).join('');
+
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      if (e.target.checked) selectedNewMembers.add(e.target.dataset.uid);
+      else selectedNewMembers.delete(e.target.dataset.uid);
+    });
+  });
+}
+
+function confirmAddMembers() {
+  if (selectedNewMembers.size === 0) return showToast('Select at least one person to add', true);
+
+  const btn = document.getElementById('confirmAddMembersBtn');
+  btn.disabled = true; btn.textContent = 'Adding...';
+
+  const newUids = Array.from(selectedNewMembers);
+  const memberUpdates = {};
+  newUids.forEach(uid => { memberUpdates['groups/' + currentGroupId + '/members/' + uid] = true; });
+
+  // Step 1: add them to the group's own member list.
+  db.ref().update(memberUpdates)
+    .then(() => {
+      // Step 2: fan out into each new member's own index, now that the
+      // group genuinely reflects their membership server-side.
+      const indexUpdates = {};
+      newUids.forEach(uid => { indexUpdates['userGroups/' + uid + '/' + currentGroupId] = true; });
+      return db.ref().update(indexUpdates);
+    })
+    .then(() => {
+      document.getElementById('addMembersSection').classList.add('hidden');
+      showToast('Members added');
+    })
+    .catch(err => showToast(err.message, true))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Add Selected'; });
 }
 
 function loadGroupCategories() {
@@ -690,6 +769,7 @@ function loadGroupExpenses() {
     expensesCache = snap.val() || {};
     renderExpensesList();
     computeGroupBalance();
+    renderAnalysisTab();
   });
 }
 
@@ -753,12 +833,54 @@ function balanceLineHtml(t) {
   return `<div class="list-row"><div class="list-row-info"><span><strong>${escapeHtml(fromName)}</strong> owes <strong>${escapeHtml(toName)}</strong></span></div><div class="list-row-amount"><span class="amt">${formatCurrency(t.amount)}</span></div></div>`;
 }
 
+// ---------- Analysis (spend by category) ----------
+
+function computeCategoryAnalysis() {
+  const totals = {};
+  let grandTotal = 0;
+  Object.values(expensesCache).forEach(exp => {
+    if (!exp || exp.type === 'settlement') return;
+    const cat = exp.category || 'General';
+    const amt = Number(exp.amount) || 0;
+    totals[cat] = (totals[cat] || 0) + amt;
+    grandTotal += amt;
+  });
+  return { totals, grandTotal };
+}
+
+function renderAnalysisTab() {
+  const { totals, grandTotal } = computeCategoryAnalysis();
+  document.getElementById('analysisTotalAmount').textContent = formatCurrency(grandTotal);
+
+  const listEl = document.getElementById('categoryAnalysisList');
+  const emptyEl = document.getElementById('analysisEmpty');
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) { listEl.innerHTML = ''; emptyEl.classList.remove('hidden'); return; }
+  emptyEl.classList.add('hidden');
+
+  listEl.innerHTML = entries.map(([cat, amt]) => {
+    const pct = grandTotal > 0 ? Math.round((amt / grandTotal) * 100) : 0;
+    const idx = colorIndexForString(cat);
+    return `
+      <div class="list-row">
+        <div class="list-row-info">
+          <strong>${escapeHtml(cat)}</strong>
+          <div class="category-bar-track"><div class="category-bar-fill avatar-c${idx}" style="width:${pct}%"></div></div>
+        </div>
+        <div class="list-row-amount"><span class="amt">${formatCurrency(amt)}</span><span class="lbl">${pct}%</span></div>
+      </div>`;
+  }).join('');
+}
+
 // ---------- Add expense ----------
 
 function openAddExpenseModal() {
   const isMember = !!(groupData && groupData.members && groupData.members[currentUser.uid]);
   if (!isMember) return showToast('Only group members can add expenses', true);
 
+  editingExpenseId = null;
+  document.getElementById('expenseModalTitle').textContent = 'Add Expense';
   document.getElementById('expDescription').value = '';
   document.getElementById('expAmount').value = '';
   document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
@@ -770,10 +892,33 @@ function openAddExpenseModal() {
   showModal('addExpenseModal');
 }
 
+function openEditExpenseModal(expId) {
+  const exp = expensesCache[expId];
+  if (!exp) return;
+  const isMember = !!(groupData && groupData.members && groupData.members[currentUser.uid]);
+  if (!isMember) return showToast('Only group members can edit expenses', true);
+
+  editingExpenseId = expId;
+  document.getElementById('expenseModalTitle').textContent = 'Edit Expense';
+  document.getElementById('expDescription').value = exp.description || '';
+  document.getElementById('expAmount').value = exp.amount || '';
+  document.getElementById('expDate').value = exp.date || new Date().toISOString().split('T')[0];
+  populatePaidBySelect();
+  document.getElementById('expPaidBy').value = exp.paidBy;
+  populateCategorySelect();
+  document.getElementById('expCategory').value = exp.category || 'General';
+
+  currentSplitType = 'custom';
+  document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.split === 'custom'));
+  renderSplitMembers();
+  showModal('addExpenseModal');
+}
+
 function renderSplitMembers() {
   const container = document.getElementById('splitMembersContainer');
   const amount = parseFloat(document.getElementById('expAmount').value) || 0;
   const entries = Object.entries(groupMembersData);
+  const editingSplit = (editingExpenseId && expensesCache[editingExpenseId]) ? (expensesCache[editingExpenseId].splitAmong || {}) : null;
 
   if (currentSplitType === 'equal') {
     const share = entries.length ? amount / entries.length : 0;
@@ -785,11 +930,14 @@ function renderSplitMembers() {
       </div>`).join('');
     container.querySelectorAll('.split-checkbox').forEach(cb => cb.addEventListener('change', recalcEqualSplit));
   } else {
-    container.innerHTML = entries.map(([uid, u]) => `
+    container.innerHTML = entries.map(([uid, u]) => {
+      const prefill = editingSplit && editingSplit[uid] !== undefined ? editingSplit[uid] : '';
+      return `
       <div class="split-member-row">
         <span>${escapeHtml(u.name)}${uid === currentUser.uid ? ' (You)' : ''}</span>
-        <div class="custom-split-input"><span class="currency-prefix-sm">₹</span><input type="number" class="custom-split-field" data-uid="${uid}" min="0" step="0.01" placeholder="0.00" /></div>
-      </div>`).join('');
+        <div class="custom-split-input"><span class="currency-prefix-sm">₹</span><input type="number" class="custom-split-field" data-uid="${uid}" min="0" step="0.01" placeholder="0.00" value="${prefill}" /></div>
+      </div>`;
+    }).join('');
   }
 }
 
@@ -834,11 +982,19 @@ function saveExpense() {
   const btn = document.getElementById('saveExpenseBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
 
-  db.ref('expenses/' + currentGroupId).push().set({
-    description, amount, category, date, paidBy, splitAmong,
-    type: 'expense', createdBy: currentUser.uid, createdAt: firebase.database.ServerValue.TIMESTAMP
-  }).then(() => { hideModal('addExpenseModal'); showToast('Expense added'); })
-    .catch(err => showToast(err.message, true))
+  const payload = { description, amount, category, date, paidBy, splitAmong, type: 'expense' };
+
+  const writeOp = editingExpenseId
+    ? db.ref('expenses/' + currentGroupId + '/' + editingExpenseId).update(payload)
+    : db.ref('expenses/' + currentGroupId).push().set({
+        ...payload, createdBy: currentUser.uid, createdAt: firebase.database.ServerValue.TIMESTAMP
+      });
+
+  writeOp.then(() => {
+    hideModal('addExpenseModal');
+    showToast(editingExpenseId ? 'Expense updated' : 'Expense added');
+    editingExpenseId = null;
+  }).catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
 }
 
@@ -847,6 +1003,11 @@ function saveExpense() {
 function openExpenseDetail(expId) {
   const exp = expensesCache[expId];
   if (!exp) return;
+  currentDetailExpenseId = expId;
+  const isMember = !!(groupData && groupData.members && groupData.members[currentUser.uid]);
+  document.getElementById('editExpenseBtn').classList.toggle('hidden', !isMember);
+  document.getElementById('deleteExpenseBtn').classList.toggle('hidden', !isMember);
+
   const payer = groupMembersData[exp.paidBy];
   const splitRows = Object.entries(exp.splitAmong || {}).map(([uid, share]) => {
     const u = groupMembersData[uid];
@@ -874,6 +1035,13 @@ function openExpenseDetail(expId) {
 
   loadComments(expId);
   showModal('expenseDetailModal');
+}
+
+function deleteExpense(expId) {
+  if (!confirm('Delete this expense? This cannot be undone.')) return;
+  db.ref('expenses/' + currentGroupId + '/' + expId).remove()
+    .then(() => { hideModal('expenseDetailModal'); showToast('Expense deleted'); })
+    .catch(err => showToast(err.message, true));
 }
 
 function loadComments(expId) {
