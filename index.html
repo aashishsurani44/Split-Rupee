@@ -100,6 +100,7 @@
     <div class="tabs-row">
       <button class="tab-btn active" data-tab="balances">Balances</button>
       <button class="tab-btn" data-tab="expenses">Expenses</button>
+      <button class="tab-btn" data-tab="analysis">Analysis</button>
     </div>
 
     <main class="page-content">
@@ -111,6 +112,16 @@
       <div id="tab-expenses" class="tab-panel hidden">
         <div id="expensesList" class="list-group"></div>
         <div class="empty-state hidden" id="expensesEmpty">No expenses yet.</div>
+      </div>
+
+      <div id="tab-analysis" class="tab-panel hidden">
+        <div class="balance-card">
+          <div class="balance-card-head"><span>Total spent</span></div>
+          <div class="balance-card-amount" id="analysisTotalAmount">₹0.00</div>
+        </div>
+        <div class="list-section-title">By category</div>
+        <div id="categoryAnalysisList" class="list-group"></div>
+        <div class="empty-state hidden" id="analysisEmpty">No expenses yet.</div>
       </div>
     </main>
   </div>
@@ -181,14 +192,23 @@
 <div id="membersModal" class="modal-overlay hidden">
   <div class="modal-sheet">
     <div class="modal-header"><h3>Group Members</h3><button class="modal-close" id="closeMembersModal">✕</button></div>
-    <div class="modal-body"><div id="groupMembersList"></div></div>
+    <div class="modal-body">
+      <div id="groupMembersList"></div>
+      <button id="showAddMembersBtn" class="btn btn-secondary btn-block hidden" style="margin-top:14px;">+ Add Members</button>
+      <div id="addMembersSection" class="hidden" style="margin-top:14px;">
+        <label class="field-label" for="addMembersSearchInput">Add Members</label>
+        <input type="text" id="addMembersSearchInput" class="input-field" placeholder="Search by name or email" />
+        <div id="addMembersListContainer" class="members-list"></div>
+        <button id="confirmAddMembersBtn" class="btn btn-primary btn-block" style="margin-top:14px;">Add Selected</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- ================= ADD EXPENSE MODAL ================= -->
 <div id="addExpenseModal" class="modal-overlay hidden">
   <div class="modal-sheet modal-sheet-tall">
-    <div class="modal-header"><h3>Add Expense</h3><button class="modal-close" id="closeExpenseModal">✕</button></div>
+    <div class="modal-header"><h3 id="expenseModalTitle">Add Expense</h3><button class="modal-close" id="closeExpenseModal">✕</button></div>
     <div class="modal-body">
       <label class="field-label" for="expDescription">Description</label>
       <input type="text" id="expDescription" class="input-field" placeholder="e.g. Dinner at cafe" />
@@ -227,7 +247,14 @@
 <!-- ================= EXPENSE DETAIL MODAL ================= -->
 <div id="expenseDetailModal" class="modal-overlay hidden">
   <div class="modal-sheet modal-sheet-tall">
-    <div class="modal-header"><h3>Expense Details</h3><button class="modal-close" id="closeDetailModal">✕</button></div>
+    <div class="modal-header">
+      <h3>Expense Details</h3>
+      <div class="modal-header-actions">
+        <button id="editExpenseBtn" class="icon-btn" aria-label="Edit expense">✏️</button>
+        <button id="deleteExpenseBtn" class="icon-btn" aria-label="Delete expense">🗑️</button>
+        <button class="modal-close" id="closeDetailModal">✕</button>
+      </div>
+    </div>
     <div class="modal-body" id="expenseDetailBody"></div>
   </div>
 </div>
