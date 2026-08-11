@@ -141,6 +141,38 @@
   </main>
 </div>
 
+<!-- ================= PERSONAL EXPENSES ================= -->
+<div id="screen-personal" class="screen">
+  <header class="topbar"><h1>Personal Expenses</h1></header>
+
+  <div class="tabs-row">
+    <button class="tab-btn active" data-tab="personal-expenses">Expenses</button>
+    <button class="tab-btn" data-tab="personal-analysis">Analysis</button>
+  </div>
+
+  <main class="page-content">
+    <div id="tab-personal-expenses" class="tab-panel">
+      <div class="balance-card">
+        <div class="balance-card-head"><span id="personalMonthLabel">This month</span></div>
+        <div class="balance-card-amount" id="personalMonthTotal">₹0.00</div>
+      </div>
+      <div class="list-section-title">All expenses</div>
+      <div id="personalExpensesList" class="list-group"></div>
+      <div class="empty-state hidden" id="personalExpensesEmpty">No personal expenses yet — tap + below to add one.</div>
+    </div>
+
+    <div id="tab-personal-analysis" class="tab-panel hidden">
+      <div class="balance-card">
+        <div class="balance-card-head"><span>Total spent (all time)</span></div>
+        <div class="balance-card-amount" id="personalAnalysisTotalAmount">₹0.00</div>
+      </div>
+      <div class="list-section-title">By category</div>
+      <div id="personalCategoryAnalysisList" class="list-group"></div>
+      <div class="empty-state hidden" id="personalAnalysisEmpty">No expenses yet.</div>
+    </div>
+  </main>
+</div>
+
 <!-- ================= ADMIN ================= -->
 <div id="screen-admin" class="screen">
   <header class="topbar">
@@ -169,6 +201,7 @@
 <!-- ================= BOTTOM NAV ================= -->
 <nav class="bottom-nav hidden" id="bottomNav">
   <button class="nav-item active" data-screen="dashboard"><span class="nav-icon">🏠</span><span>Groups</span></button>
+  <button class="nav-item" data-screen="personal"><span class="nav-icon">💰</span><span>Personal</span></button>
   <button class="nav-item nav-item-add" id="navAddBtn" aria-label="Add">+</button>
   <button class="nav-item" data-screen="account"><span class="nav-icon">👤</span><span>Account</span></button>
 </nav>
@@ -264,6 +297,71 @@
   <div class="modal-sheet">
     <div class="modal-header"><h3>Settle Up</h3><button class="modal-close" id="closeSettleModal">✕</button></div>
     <div class="modal-body"><div id="settleSuggestions"></div></div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT PERSONAL EXPENSE MODAL ================= -->
+<div id="addPersonalExpenseModal" class="modal-overlay hidden">
+  <div class="modal-sheet modal-sheet-tall">
+    <div class="modal-header"><h3 id="personalExpenseModalTitle">Add Expense</h3><button class="modal-close" id="closePersonalExpenseModal">✕</button></div>
+    <div class="modal-body">
+      <label class="field-label" for="pExpDescription">Description</label>
+      <input type="text" id="pExpDescription" class="input-field" placeholder="e.g. Groceries" />
+
+      <label class="field-label" for="pExpAmount">Amount</label>
+      <div class="amount-input-group">
+        <span class="currency-prefix">₹</span>
+        <input type="number" id="pExpAmount" class="input-field" placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+      </div>
+
+      <div class="field-row">
+        <div class="field-col">
+          <label class="field-label" for="pExpCategory">Category</label>
+          <select id="pExpCategory" class="input-field"></select>
+        </div>
+        <div class="field-col">
+          <label class="field-label" for="pExpDate">Date</label>
+          <input type="date" id="pExpDate" class="input-field" />
+        </div>
+      </div>
+
+      <label class="field-label" for="pExpMode">Mode of Payment</label>
+      <select id="pExpMode" class="input-field">
+        <option value="Cash">Cash</option>
+        <option value="UPI">UPI</option>
+        <option value="Bank Transaction">Bank Transaction</option>
+      </select>
+
+      <div class="field-label" id="pExpSplitToggleRow" style="margin-top:18px;">
+        <label class="checkbox-label-row">
+          <input type="checkbox" id="pExpSplitToggle" />
+          Split this with a group
+        </label>
+      </div>
+
+      <div id="pExpSplitSection" class="hidden" style="margin-top:10px;">
+        <label class="field-label" for="pExpSplitGroup">Group</label>
+        <select id="pExpSplitGroup" class="input-field"></select>
+        <label class="field-label">Split among</label>
+        <div id="pExpSplitMembersContainer" class="split-members-list"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button id="savePersonalExpenseBtn" class="btn btn-primary btn-block">Save Expense</button></div>
+  </div>
+</div>
+
+<!-- ================= PERSONAL EXPENSE DETAIL MODAL ================= -->
+<div id="personalExpenseDetailModal" class="modal-overlay hidden">
+  <div class="modal-sheet modal-sheet-tall">
+    <div class="modal-header">
+      <h3>Expense Details</h3>
+      <div class="modal-header-actions">
+        <button id="editPersonalExpenseBtn" class="icon-btn" aria-label="Edit expense">✏️</button>
+        <button id="deletePersonalExpenseBtn" class="icon-btn" aria-label="Delete expense">🗑️</button>
+        <button class="modal-close" id="closePersonalDetailModal">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" id="personalExpenseDetailBody"></div>
   </div>
 </div>
 
