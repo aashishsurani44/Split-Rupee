@@ -67,6 +67,8 @@ let personalExpensesRef = null;
 let editingPersonalExpenseId = null;
 let currentPersonalDetailId = null;
 let personalSplitGroupMembersData = {};
+let walletRef = null;
+let walletData = null; // null = wallet not set up
 
 // ============================================================
 // Boot
@@ -98,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
       loadDashboardData();
       loadCategoriesGlobal();
       loadPersonalExpenses();
+      loadWallet();
     }).catch(() => showScreen('login'));
   });
 });
@@ -215,6 +218,8 @@ function teardownListeners() {
   if (categoriesRef) { categoriesRef.off(); categoriesRef = null; }
   if (personalExpensesRef) { personalExpensesRef.off(); personalExpensesRef = null; }
   personalExpensesCache = {};
+  if (walletRef) { walletRef.off(); walletRef = null; }
+  walletData = null;
 }
 
 // ============================================================
@@ -239,6 +244,10 @@ function wireStaticEvents() {
   });
   document.getElementById('loginPassword').addEventListener('keypress', e => { if (e.key === 'Enter') loginWithEmail(); });
   document.getElementById('signupPassword').addEventListener('keypress', e => { if (e.key === 'Enter') signUpWithEmail(); });
+  document.getElementById('openWalletModalBtn').addEventListener('click', openWalletModal);
+  document.getElementById('setupWalletBtn').addEventListener('click', openWalletModal);
+  document.getElementById('closeWalletModal').addEventListener('click', () => hideModal('walletModal'));
+  document.getElementById('confirmWalletAddBtn').addEventListener('click', confirmWalletAdd);
 
   // --- Bottom nav ---
   document.querySelectorAll('.nav-item[data-screen]').forEach(btn => {
@@ -1397,6 +1406,51 @@ function savePersonalExpense() {
   const btn = document.getElementById('savePersonalExpenseBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
 
+  const previousImpact = editingPersonalExpenseId && personalExpensesCache[editingPersonalExpenseId]
+    ? personalExpensesCache[editingPersonalExpenseId].walletImpact
+    : undefined;
+  const walletTracked = typeof previousImpact === 'number';
+  const walletActive = walletData !== null;
+
+  const groupWrite = splitEnabled
+    ? db.ref('expenses/' + splitGroupId).push().set({
+        description, amount, category, date, paidBy: currentUser.uid, splitAmong,
+        type: 'expense', createdBy: currentUser.uid, createdAt: firebase.database.ServerValue.TIMESTAMP
+      })
+    : Promise.resolve();
+
+  groupWrite.then(() => {
+    const payload = { date, description, category, paymentMode, amount, splitGroupId: splitGroupId || null };
+    if (!editingPersonalExpenseId && walletActive) payload.walletImpact = amount;
+    if (editingPersonalExpenseId && walletTracked) payload.walletImpact = amount;
+
+    return editingPersonalExpenseId
+      ? db.ref('personalExpenses/' + currentUser.uid + '/' + editingPersonalExpenseId).update(payload)
+      : db.ref('personalExpenses/' + currentUser.uid).push().set({ ...payload, createdAt: firebase.database.ServerValue.TIMESTAMP });
+  })
+    .then(() => {
+      if (!editingPersonalExpenseId && walletActive) {
+        return db.ref('wallets/' + currentUser.uid + '/balance').transaction(current =>
+          Math.round(((typeof current === 'number' ? current : 0) - amount) * 100) / 100
+        );
+      }
+      if (editingPersonalExpenseId && walletTracked) {
+        const delta = previousImpact - amount;
+        return db.ref('wallets/' + currentUser.uid + '/balance').transaction(current =>
+          Math.round(((typeof current === 'number' ? current : 0) + delta) * 100) / 100
+        );
+      }
+      return Promise.resolve();
+    })
+    .then(() => {
+      hideModal('addPersonalExpenseModal');
+      showToast(editingPersonalExpenseId ? 'Expense updated' : 'Expense added');
+      editingPersonalExpenseId = null;
+    })
+    .catch(err => showToast(err.message, true))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
+}
+
   // Step 1 (if splitting): add the matching expense to the group first.
   const groupWrite = splitEnabled
     ? db.ref('expenses/' + splitGroupId).push().set({
@@ -1443,7 +1497,61 @@ function openPersonalExpenseDetail(id) {
 
 function deletePersonalExpense(id) {
   if (!confirm('Delete this expense? This cannot be undone.')) return;
+  const exp = personalExpensesCache[id];
+  const impact = exp && typeof exp.walletImpact === 'number' ? exp.walletImpact : null;
+
   db.ref('personalExpenses/' + currentUser.uid + '/' + id).remove()
+    .then(() => {
+      if (impact === null) return Promise.resolve();
+      return db.ref('wallets/' + currentUser.uid + '/balance').transaction(current =>
+        Math.round(((typeof current === 'number' ? current : 0) + impact) * 100) / 100
+      );
+    })
     .then(() => { hideModal('personalExpenseDetailModal'); showToast('Expense deleted'); })
     .catch(err => showToast(err.message, true));
+}
+
+function loadWallet() {
+  if (walletRef) walletRef.off();
+  walletRef = db.ref('wallets/' + currentUser.uid + '/balance');
+  walletRef.on('value', snap => {
+    walletData = snap.exists() ? snap.val() : null;
+    renderWalletCard();
+  });
+}
+
+function renderWalletCard() {
+  const card = document.getElementById('walletCard');
+  const setupBtn = document.getElementById('setupWalletBtn');
+  if (walletData === null) {
+    card.classList.add('hidden');
+    setupBtn.classList.remove('hidden');
+    return;
+  }
+  setupBtn.classList.add('hidden');
+  card.classList.remove('hidden');
+  const balance = Number(walletData) || 0;
+  const amtEl = document.getElementById('walletBalanceAmount');
+  amtEl.textContent = formatCurrency(balance);
+  amtEl.style.color = balance < 0 ? 'var(--owe)' : 'var(--text)';
+}
+
+function openWalletModal() {
+  document.getElementById('walletAddAmount').value = '';
+  document.getElementById('walletModalTitle').textContent = walletData === null ? 'Set Up Wallet' : 'Add to Wallet';
+  showModal('walletModal');
+}
+
+function confirmWalletAdd() {
+  const amount = parseFloat(document.getElementById('walletAddAmount').value);
+  if (!amount || amount <= 0) return showToast('Enter a valid amount', true);
+
+  const btn = document.getElementById('confirmWalletAddBtn');
+  btn.disabled = true; btn.textContent = 'Adding...';
+
+  db.ref('wallets/' + currentUser.uid + '/balance').transaction(current =>
+    Math.round(((typeof current === 'number' ? current : 0) + amount) * 100) / 100
+  ).then(() => { hideModal('walletModal'); showToast('Wallet updated'); })
+    .catch(err => showToast(err.message, true))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Add to Wallet'; });
 }
