@@ -151,23 +151,23 @@
   </div>
 
   <main class="page-content">
-  <div id="tab-personal-expenses" class="tab-panel">
-    <div class="balance-card">
-      <div class="balance-card-head"><span id="personalMonthLabel">This month</span></div>
-      <div class="balance-card-amount" id="personalMonthTotal">₹0.00</div>
-    </div>
+    <div id="tab-personal-expenses" class="tab-panel">
+      <div class="balance-card">
+        <div class="balance-card-head"><span id="personalMonthLabel">This month</span></div>
+        <div class="balance-card-amount" id="personalMonthTotal">₹0.00</div>
+      </div>
 
-    <div class="balance-card hidden" id="walletCard" style="margin-top:12px;">
-      <div class="balance-card-head"><span>Wallet balance</span></div>
-      <div class="balance-card-amount" id="walletBalanceAmount">₹0.00</div>
-      <button id="openWalletModalBtn" class="btn btn-secondary btn-block" style="margin-top:10px;">+ Add to Wallet</button>
-    </div>
+      <div class="balance-card hidden" id="walletCard" style="margin-top:12px;">
+        <div class="balance-card-head"><span>Wallet balance</span></div>
+        <div class="balance-card-amount" id="walletBalanceAmount">₹0.00</div>
+        <button id="openWalletModalBtn" class="btn btn-secondary btn-block" style="margin-top:10px;">+ Add to Wallet</button>
+      </div>
       <button id="setupWalletBtn" class="btn btn-secondary btn-block" style="margin-top:12px;">+ Set Up Wallet</button>
 
-    <div class="list-section-title">All expenses</div>
-    <div id="personalExpensesList" class="list-group"></div>
-    <div class="empty-state hidden" id="personalExpensesEmpty">No personal expenses yet — tap + below to add one.</div>
-  </div>
+      <div class="list-section-title">All expenses</div>
+      <div id="personalExpensesList" class="list-group"></div>
+      <div class="empty-state hidden" id="personalExpensesEmpty">No personal expenses yet — tap + below to add one.</div>
+    </div>
 
     <div id="tab-personal-analysis" class="tab-panel hidden">
       <div class="balance-card">
@@ -271,8 +271,8 @@
         </div>
       </div>
 
-      <label class="field-label" for="expPaidBy">Paid by</label>
-      <select id="expPaidBy" class="input-field"></select>
+      <label class="field-label">Paid by</label>
+      <div id="paidByMembersContainer" class="split-members-list"></div>
 
       <label class="field-label">Split</label>
       <div class="split-toggle">
@@ -372,6 +372,8 @@
     <div class="modal-body" id="personalExpenseDetailBody"></div>
   </div>
 </div>
+
+<!-- ================= WALLET MODAL ================= -->
 <div id="walletModal" class="modal-overlay hidden">
   <div class="modal-sheet">
     <div class="modal-header"><h3 id="walletModalTitle">Add to Wallet</h3><button class="modal-close" id="closeWalletModal">✕</button></div>
