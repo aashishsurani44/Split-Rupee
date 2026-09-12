@@ -313,7 +313,11 @@ function wireStaticEvents() {
   // --- Add expense modal ---
   document.getElementById('closeExpenseModal').addEventListener('click', () => hideModal('addExpenseModal'));
   document.getElementById('saveExpenseBtn').addEventListener('click', saveExpense);
-  document.getElementById('expAmount').addEventListener('input', () => { renderSplitMembers(); renderPaidByMembers(); });
+  document.getElementById('expAmount').addEventListener('input', () => {
+  renderSplitMembers();
+  if (document.getElementById('paidByMultipleToggle').checked) renderPaidByMembers();
+  });
+document.getElementById('paidByMultipleToggle').addEventListener('change', togglePaidByMode);
   document.querySelectorAll('.split-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.remove('active'));
@@ -726,7 +730,8 @@ function loadGroupMembers() {
       groupMembersData = {};
       results.forEach(r => { if (r.data) groupMembersData[r.uid] = r.data; });
       renderMembersModalList();
-      renderPaidByMembers();
+      populatePaidBySelect();
+      if (document.getElementById('paidByMultipleToggle').checked) renderPaidByMembers();
       renderSplitMembers();
       computeGroupBalance();
     });
@@ -816,6 +821,19 @@ function populateCategorySelect() {
   sel.innerHTML = keys.length === 0
     ? '<option value="General">General</option>'
     : keys.map(k => `<option value="${escapeHtml(categoriesCache[k].name)}">${escapeHtml(categoriesCache[k].name)}</option>`).join('');
+}
+
+function populatePaidBySelect() {
+  document.getElementById('expPaidBy').innerHTML = Object.entries(groupMembersData).map(([uid, u]) =>
+    `<option value="${uid}" ${uid === currentUser.uid ? 'selected' : ''}>${escapeHtml(u.name)}${uid === currentUser.uid ? ' (You)' : ''}</option>`
+  ).join('');
+}
+
+function togglePaidByMode() {
+  const isMulti = document.getElementById('paidByMultipleToggle').checked;
+  document.getElementById('expPaidBy').classList.toggle('hidden', isMulti);
+  document.getElementById('paidByMembersContainer').classList.toggle('hidden', !isMulti);
+  if (isMulti) renderPaidByMembers();
 }
 
 function renderPaidByMembers() {
@@ -976,7 +994,10 @@ function openAddExpenseModal() {
   currentSplitType = 'equal';
   document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.split-toggle-btn[data-split="equal"]').classList.add('active');
-  renderPaidByMembers();
+
+  document.getElementById('paidByMultipleToggle').checked = false;
+  populatePaidBySelect();
+  togglePaidByMode();
   renderSplitMembers();
   showModal('addExpenseModal');
 }
@@ -994,7 +1015,15 @@ function openEditExpenseModal(expId) {
   document.getElementById('expDate').value = exp.date || new Date().toISOString().split('T')[0];
   populateCategorySelect();
   document.getElementById('expCategory').value = exp.category || 'General';
-  renderPaidByMembers();
+
+  const isMulti = typeof exp.paidBy !== 'string' && exp.paidBy && Object.keys(exp.paidBy).length > 1;
+  document.getElementById('paidByMultipleToggle').checked = isMulti;
+  populatePaidBySelect();
+  if (!isMulti) {
+    const singleUid = typeof exp.paidBy === 'string' ? exp.paidBy : Object.keys(exp.paidBy || {})[0];
+    document.getElementById('expPaidBy').value = singleUid;
+  }
+  togglePaidByMode();
 
   currentSplitType = 'custom';
   document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.split === 'custom'));
@@ -1050,9 +1079,11 @@ function saveExpense() {
   if (!amount || amount <= 0) return showToast('Enter a valid amount', true);
   if (!date) return showToast('Select a date', true);
 
+  let paidBy;
+if (document.getElementById('paidByMultipleToggle').checked) {
   const paidByChecked = Array.from(document.querySelectorAll('.paidby-checkbox:checked')).map(cb => cb.dataset.uid);
   if (paidByChecked.length === 0) return showToast('Select at least one person who paid', true);
-  const paidBy = {};
+  paidBy = {};
   let paidSum = 0;
   paidByChecked.forEach(uid => {
     const field = document.querySelector(`.paidby-field[data-uid="${uid}"]`);
@@ -1061,6 +1092,10 @@ function saveExpense() {
     paidSum += val;
   });
   if (Math.abs(paidSum - amount) > 0.05) return showToast('Amounts paid must add up to the total amount', true);
+} else {
+  paidBy = document.getElementById('expPaidBy').value;
+  if (!paidBy) return showToast('Select who paid', true);
+}
 
   const splitAmong = {};
   if (currentSplitType === 'equal') {
