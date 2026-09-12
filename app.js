@@ -170,14 +170,34 @@ function calculateBalances(expenses, memberIds) {
   (memberIds || []).forEach(id => { balances[id] = 0; });
   Object.values(expenses || {}).forEach(exp => {
     if (!exp || !exp.splitAmong || !exp.paidBy) return;
-    if (balances[exp.paidBy] === undefined) balances[exp.paidBy] = 0;
-    balances[exp.paidBy] += Number(exp.amount) || 0;
+    if (typeof exp.paidBy === 'string') {
+      // Legacy single-payer format
+      if (balances[exp.paidBy] === undefined) balances[exp.paidBy] = 0;
+      balances[exp.paidBy] += Number(exp.amount) || 0;
+    } else {
+      // Multi-payer format: { uid: amountPaid, ... }
+      Object.entries(exp.paidBy).forEach(([uid, paidAmt]) => {
+        if (balances[uid] === undefined) balances[uid] = 0;
+        balances[uid] += Number(paidAmt) || 0;
+      });
+    }
     Object.entries(exp.splitAmong).forEach(([uid, share]) => {
       if (balances[uid] === undefined) balances[uid] = 0;
       balances[uid] -= Number(share) || 0;
     });
   });
   return balances;
+}
+
+// Returns a short "who paid" summary string for the expenses list row.
+function paidBySummary(exp) {
+  const entries = typeof exp.paidBy === 'string' ? [[exp.paidBy, exp.amount]] : Object.entries(exp.paidBy || {});
+  if (entries.length === 0) return 'Unknown';
+  if (entries.length === 1) {
+    const u = groupMembersData[entries[0][0]];
+    return u ? escapeHtml(u.name) + ' paid' : 'Unknown';
+  }
+  return entries.length + ' people paid';
 }
 
 function simplifyDebts(balances) {
@@ -244,10 +264,6 @@ function wireStaticEvents() {
   });
   document.getElementById('loginPassword').addEventListener('keypress', e => { if (e.key === 'Enter') loginWithEmail(); });
   document.getElementById('signupPassword').addEventListener('keypress', e => { if (e.key === 'Enter') signUpWithEmail(); });
-  document.getElementById('openWalletModalBtn').addEventListener('click', openWalletModal);
-  document.getElementById('setupWalletBtn').addEventListener('click', openWalletModal);
-  document.getElementById('closeWalletModal').addEventListener('click', () => hideModal('walletModal'));
-  document.getElementById('confirmWalletAddBtn').addEventListener('click', confirmWalletAdd);
 
   // --- Bottom nav ---
   document.querySelectorAll('.nav-item[data-screen]').forEach(btn => {
@@ -297,7 +313,7 @@ function wireStaticEvents() {
   // --- Add expense modal ---
   document.getElementById('closeExpenseModal').addEventListener('click', () => hideModal('addExpenseModal'));
   document.getElementById('saveExpenseBtn').addEventListener('click', saveExpense);
-  document.getElementById('expAmount').addEventListener('input', renderSplitMembers);
+  document.getElementById('expAmount').addEventListener('input', () => { renderSplitMembers(); renderPaidByMembers(); });
   document.querySelectorAll('.split-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.remove('active'));
@@ -343,6 +359,12 @@ function wireStaticEvents() {
   document.getElementById('deletePersonalExpenseBtn').addEventListener('click', () => {
     if (currentPersonalDetailId) deletePersonalExpense(currentPersonalDetailId);
   });
+
+  // --- Wallet ---
+  document.getElementById('openWalletModalBtn').addEventListener('click', openWalletModal);
+  document.getElementById('setupWalletBtn').addEventListener('click', openWalletModal);
+  document.getElementById('closeWalletModal').addEventListener('click', () => hideModal('walletModal'));
+  document.getElementById('confirmWalletAddBtn').addEventListener('click', confirmWalletAdd);
 }
 
 function initAppShell(userData) {
@@ -704,7 +726,7 @@ function loadGroupMembers() {
       groupMembersData = {};
       results.forEach(r => { if (r.data) groupMembersData[r.uid] = r.data; });
       renderMembersModalList();
-      populatePaidBySelect();
+      renderPaidByMembers();
       renderSplitMembers();
       computeGroupBalance();
     });
@@ -796,10 +818,36 @@ function populateCategorySelect() {
     : keys.map(k => `<option value="${escapeHtml(categoriesCache[k].name)}">${escapeHtml(categoriesCache[k].name)}</option>`).join('');
 }
 
-function populatePaidBySelect() {
-  document.getElementById('expPaidBy').innerHTML = Object.entries(groupMembersData).map(([uid, u]) =>
-    `<option value="${uid}" ${uid === currentUser.uid ? 'selected' : ''}>${escapeHtml(u.name)}${uid === currentUser.uid ? ' (You)' : ''}</option>`
-  ).join('');
+function renderPaidByMembers() {
+  const container = document.getElementById('paidByMembersContainer');
+  const amount = parseFloat(document.getElementById('expAmount').value) || 0;
+  const entries = Object.entries(groupMembersData);
+
+  const rawPaidBy = (editingExpenseId && expensesCache[editingExpenseId]) ? expensesCache[editingExpenseId].paidBy : null;
+  const editingPaidBy = rawPaidBy
+    ? (typeof rawPaidBy === 'string' ? { [rawPaidBy]: expensesCache[editingExpenseId].amount } : rawPaidBy)
+    : null;
+
+  container.innerHTML = entries.map(([uid, u]) => {
+    const isChecked = editingPaidBy ? (editingPaidBy[uid] !== undefined) : (uid === currentUser.uid);
+    const prefill = editingPaidBy && editingPaidBy[uid] !== undefined
+      ? editingPaidBy[uid]
+      : (!editingPaidBy && uid === currentUser.uid ? amount : '');
+    return `
+      <div class="split-member-row">
+        <input type="checkbox" class="paidby-checkbox" data-uid="${uid}" ${isChecked ? 'checked' : ''} />
+        <span>${escapeHtml(u.name)}${uid === currentUser.uid ? ' (You)' : ''}</span>
+        <div class="custom-split-input"><span class="currency-prefix-sm">₹</span><input type="number" class="paidby-field" data-uid="${uid}" min="0" step="0.01" placeholder="0.00" value="${prefill}" ${isChecked ? '' : 'disabled'} /></div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.paidby-checkbox').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const field = container.querySelector(`.paidby-field[data-uid="${e.target.dataset.uid}"]`);
+      field.disabled = !e.target.checked;
+      if (!e.target.checked) field.value = '';
+    });
+  });
 }
 
 // ---------- Expenses list ----------
@@ -825,14 +873,13 @@ function renderExpensesList() {
   emptyEl.classList.add('hidden');
 
   listEl.innerHTML = entries.map(([expId, exp]) => {
-    const payer = groupMembersData[exp.paidBy];
     const isSettlement = exp.type === 'settlement';
     return `
       <div class="list-row" data-exp-id="${expId}">
         <div class="expense-date-badge"><span>${formatDateShort(exp.date)}</span></div>
         <div class="list-row-info">
           <strong>${isSettlement ? '🤝 ' : ''}${escapeHtml(exp.description)}</strong>
-          <span>${isSettlement ? 'Settlement' : (payer ? escapeHtml(payer.name) + ' paid' : 'Unknown')} · ${escapeHtml(exp.category || 'General')}</span>
+          <span>${isSettlement ? 'Settlement' : paidBySummary(exp)} · ${escapeHtml(exp.category || 'General')}</span>
         </div>
         <div class="list-row-amount"><span class="amt">${formatCurrency(exp.amount)}</span></div>
       </div>`;
@@ -929,7 +976,7 @@ function openAddExpenseModal() {
   currentSplitType = 'equal';
   document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.split-toggle-btn[data-split="equal"]').classList.add('active');
-  populatePaidBySelect();
+  renderPaidByMembers();
   renderSplitMembers();
   showModal('addExpenseModal');
 }
@@ -945,10 +992,9 @@ function openEditExpenseModal(expId) {
   document.getElementById('expDescription').value = exp.description || '';
   document.getElementById('expAmount').value = exp.amount || '';
   document.getElementById('expDate').value = exp.date || new Date().toISOString().split('T')[0];
-  populatePaidBySelect();
-  document.getElementById('expPaidBy').value = exp.paidBy;
   populateCategorySelect();
   document.getElementById('expCategory').value = exp.category || 'General';
+  renderPaidByMembers();
 
   currentSplitType = 'custom';
   document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.split === 'custom'));
@@ -999,11 +1045,22 @@ function saveExpense() {
   const amount = parseFloat(document.getElementById('expAmount').value);
   const category = document.getElementById('expCategory').value;
   const date = document.getElementById('expDate').value;
-  const paidBy = document.getElementById('expPaidBy').value;
 
   if (!description) return showToast('Enter a description', true);
   if (!amount || amount <= 0) return showToast('Enter a valid amount', true);
   if (!date) return showToast('Select a date', true);
+
+  const paidByChecked = Array.from(document.querySelectorAll('.paidby-checkbox:checked')).map(cb => cb.dataset.uid);
+  if (paidByChecked.length === 0) return showToast('Select at least one person who paid', true);
+  const paidBy = {};
+  let paidSum = 0;
+  paidByChecked.forEach(uid => {
+    const field = document.querySelector(`.paidby-field[data-uid="${uid}"]`);
+    const val = parseFloat(field.value) || 0;
+    paidBy[uid] = val;
+    paidSum += val;
+  });
+  if (Math.abs(paidSum - amount) > 0.05) return showToast('Amounts paid must add up to the total amount', true);
 
   const splitAmong = {};
   if (currentSplitType === 'equal') {
@@ -1050,7 +1107,13 @@ function openExpenseDetail(expId) {
   document.getElementById('editExpenseBtn').classList.toggle('hidden', !isMember);
   document.getElementById('deleteExpenseBtn').classList.toggle('hidden', !isMember);
 
-  const payer = groupMembersData[exp.paidBy];
+  const payerEntries = typeof exp.paidBy === 'string' ? [[exp.paidBy, exp.amount]] : Object.entries(exp.paidBy || {});
+  const payerNames = payerEntries.map(([uid]) => groupMembersData[uid] ? groupMembersData[uid].name : 'Unknown').join(', ');
+  const paidByRows = payerEntries.length > 1 ? payerEntries.map(([uid, amt]) => {
+    const u = groupMembersData[uid];
+    return `<div class="detail-split-row"><span>${u ? escapeHtml(u.name) : 'Unknown'}</span><span>${formatCurrency(amt)}</span></div>`;
+  }).join('') : '';
+
   const splitRows = Object.entries(exp.splitAmong || {}).map(([uid, share]) => {
     const u = groupMembersData[uid];
     return `<div class="detail-split-row"><span>${u ? escapeHtml(u.name) : 'Unknown'}</span><span>${formatCurrency(share)}</span></div>`;
@@ -1059,10 +1122,11 @@ function openExpenseDetail(expId) {
   document.getElementById('expenseDetailBody').innerHTML = `
     <div class="detail-header"><h4>${escapeHtml(exp.description)}</h4><div class="detail-amount">${formatCurrency(exp.amount)}</div></div>
     <div class="detail-meta">
-      <div><span>Paid by</span><strong>${payer ? escapeHtml(payer.name) : 'Unknown'}</strong></div>
+      <div><span>Paid by</span><strong>${payerNames ? escapeHtml(payerNames) : 'Unknown'}</strong></div>
       <div><span>Category</span><strong>${escapeHtml(exp.category || 'General')}</strong></div>
       <div><span>Date</span><strong>${formatDateShort(exp.date)}</strong></div>
     </div>
+    ${paidByRows ? `<div class="detail-section-title">Paid By Details</div><div class="detail-split-list">${paidByRows}</div>` : ''}
     <div class="detail-section-title">Split Details</div>
     <div class="detail-split-list">${splitRows}</div>
     <div class="detail-section-title">Comments</div>
@@ -1412,6 +1476,7 @@ function savePersonalExpense() {
   const walletTracked = typeof previousImpact === 'number';
   const walletActive = walletData !== null;
 
+  // Step 1 (if splitting): add the matching expense to the group first.
   const groupWrite = splitEnabled
     ? db.ref('expenses/' + splitGroupId).push().set({
         description, amount, category, date, paidBy: currentUser.uid, splitAmong,
@@ -1421,6 +1486,8 @@ function savePersonalExpense() {
 
   groupWrite.then(() => {
     const payload = { date, description, category, paymentMode, amount, splitGroupId: splitGroupId || null };
+    // Only track/adjust wallet impact if a wallet is active (new expense) or
+    // this expense was already being tracked (editing an older one).
     if (!editingPersonalExpenseId && walletActive) payload.walletImpact = amount;
     if (editingPersonalExpenseId && walletTracked) payload.walletImpact = amount;
 
@@ -1429,6 +1496,7 @@ function savePersonalExpense() {
       : db.ref('personalExpenses/' + currentUser.uid).push().set({ ...payload, createdAt: firebase.database.ServerValue.TIMESTAMP });
   })
     .then(() => {
+      // Step 2: subtract from the wallet — only if the wallet is in use.
       if (!editingPersonalExpenseId && walletActive) {
         return db.ref('wallets/' + currentUser.uid + '/balance').transaction(current =>
           Math.round(((typeof current === 'number' ? current : 0) - amount) * 100) / 100
@@ -1487,6 +1555,8 @@ function deletePersonalExpense(id) {
     .then(() => { hideModal('personalExpenseDetailModal'); showToast('Expense deleted'); })
     .catch(err => showToast(err.message, true));
 }
+
+// ---------- Wallet ----------
 
 function loadWallet() {
   if (walletRef) walletRef.off();
