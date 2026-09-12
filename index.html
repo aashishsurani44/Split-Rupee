@@ -271,8 +271,13 @@
         </div>
       </div>
 
-      <label class="field-label">Paid by</label>
-      <div id="paidByMembersContainer" class="split-members-list"></div>
+      <div class="field-label-row">
+        <span class="field-label" style="margin:0;">Paid by</span>
+        <label class="checkbox-label-row-sm">
+        <input type="checkbox" id="paidByMultipleToggle" />Multiple</label>
+      </div>
+        <select id="expPaidBy" class="input-field"></select>
+      <div id="paidByMembersContainer" class="split-members-list hidden"></div>
 
       <label class="field-label">Split</label>
       <div class="split-toggle">
