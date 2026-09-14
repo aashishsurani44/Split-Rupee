@@ -69,6 +69,8 @@ let currentPersonalDetailId = null;
 let personalSplitGroupMembersData = {};
 let walletRef = null;
 let walletData = null; // null = wallet not set up
+let notificationsCache = {};
+let notificationsRef = null;
 
 // ============================================================
 // Boot
@@ -101,6 +103,8 @@ document.addEventListener('DOMContentLoaded', () => {
       loadCategoriesGlobal();
       loadPersonalExpenses();
       loadWallet();
+      loadNotifications();
+      setTimeout(checkMonthlyNotifications, 3000);
     }).catch(() => showScreen('login'));
   });
 });
@@ -240,6 +244,8 @@ function teardownListeners() {
   personalExpensesCache = {};
   if (walletRef) { walletRef.off(); walletRef = null; }
   walletData = null;
+  if (notificationsRef) { notificationsRef.off(); notificationsRef = null; }
+  notificationsCache = {};
 }
 
 // ============================================================
@@ -314,10 +320,10 @@ function wireStaticEvents() {
   document.getElementById('closeExpenseModal').addEventListener('click', () => hideModal('addExpenseModal'));
   document.getElementById('saveExpenseBtn').addEventListener('click', saveExpense);
   document.getElementById('expAmount').addEventListener('input', () => {
-  renderSplitMembers();
-  if (document.getElementById('paidByMultipleToggle').checked) renderPaidByMembers();
+    renderSplitMembers();
+    if (document.getElementById('paidByMultipleToggle').checked) renderPaidByMembers();
   });
-document.getElementById('paidByMultipleToggle').addEventListener('change', togglePaidByMode);
+  document.getElementById('paidByMultipleToggle').addEventListener('change', togglePaidByMode);
   document.querySelectorAll('.split-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.split-toggle-btn').forEach(b => b.classList.remove('active'));
@@ -369,6 +375,10 @@ document.getElementById('paidByMultipleToggle').addEventListener('change', toggl
   document.getElementById('setupWalletBtn').addEventListener('click', openWalletModal);
   document.getElementById('closeWalletModal').addEventListener('click', () => hideModal('walletModal'));
   document.getElementById('confirmWalletAddBtn').addEventListener('click', confirmWalletAdd);
+
+  // --- Notifications ---
+  document.getElementById('notificationsBtn').addEventListener('click', openNotificationsModal);
+  document.getElementById('closeNotificationsModal').addEventListener('click', () => hideModal('notificationsModal'));
 }
 
 function initAppShell(userData) {
@@ -666,7 +676,21 @@ function createGroup() {
       memberUids.forEach(uid => { indexUpdates['userGroups/' + uid + '/' + groupId] = true; });
       return db.ref().update(indexUpdates);
     })
-    .then(() => { hideModal('createGroupModal'); resetGroupModal(); openGroup(groupId, 'dashboard'); })
+    .then(() => {
+      hideModal('createGroupModal'); resetGroupModal();
+
+      const otherMembers = memberUids.filter(uid => uid !== currentUser.uid);
+      notifyMultiple(otherMembers, 'member_added', 'Added to a new group',
+        `${currentUserData.name} added you to "${name}".`, groupId);
+
+      getAdminUids(currentUser.uid).then(adminUids => {
+        const remainingAdmins = adminUids.filter(uid => !otherMembers.includes(uid));
+        notifyMultiple(remainingAdmins, 'group_created', 'New group created',
+          `${currentUserData.name} created a new group "${name}".`, groupId);
+      });
+
+      openGroup(groupId, 'dashboard');
+    })
     .catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Create Group'; });
 }
@@ -804,6 +828,10 @@ function confirmAddMembers() {
     .then(() => {
       document.getElementById('addMembersSection').classList.add('hidden');
       showToast('Members added');
+
+      const groupName = groupData ? groupData.name : 'a group';
+      notifyMultiple(newUids, 'member_added', 'Added to a group',
+        `${currentUserData.name} added you to "${groupName}".`, currentGroupId);
     })
     .catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Add Selected'; });
@@ -1080,22 +1108,22 @@ function saveExpense() {
   if (!date) return showToast('Select a date', true);
 
   let paidBy;
-if (document.getElementById('paidByMultipleToggle').checked) {
-  const paidByChecked = Array.from(document.querySelectorAll('.paidby-checkbox:checked')).map(cb => cb.dataset.uid);
-  if (paidByChecked.length === 0) return showToast('Select at least one person who paid', true);
-  paidBy = {};
-  let paidSum = 0;
-  paidByChecked.forEach(uid => {
-    const field = document.querySelector(`.paidby-field[data-uid="${uid}"]`);
-    const val = parseFloat(field.value) || 0;
-    paidBy[uid] = val;
-    paidSum += val;
-  });
-  if (Math.abs(paidSum - amount) > 0.05) return showToast('Amounts paid must add up to the total amount', true);
-} else {
-  paidBy = document.getElementById('expPaidBy').value;
-  if (!paidBy) return showToast('Select who paid', true);
-}
+  if (document.getElementById('paidByMultipleToggle').checked) {
+    const paidByChecked = Array.from(document.querySelectorAll('.paidby-checkbox:checked')).map(cb => cb.dataset.uid);
+    if (paidByChecked.length === 0) return showToast('Select at least one person who paid', true);
+    paidBy = {};
+    let paidSum = 0;
+    paidByChecked.forEach(uid => {
+      const field = document.querySelector(`.paidby-field[data-uid="${uid}"]`);
+      const val = parseFloat(field.value) || 0;
+      paidBy[uid] = val;
+      paidSum += val;
+    });
+    if (Math.abs(paidSum - amount) > 0.05) return showToast('Amounts paid must add up to the total amount', true);
+  } else {
+    paidBy = document.getElementById('expPaidBy').value;
+    if (!paidBy) return showToast('Select who paid', true);
+  }
 
   const splitAmong = {};
   if (currentSplitType === 'equal') {
@@ -1127,7 +1155,12 @@ if (document.getElementById('paidByMultipleToggle').checked) {
   writeOp.then(() => {
     hideModal('addExpenseModal');
     showToast(editingExpenseId ? 'Expense updated' : 'Expense added');
+    const wasEditing = !!editingExpenseId;
     editingExpenseId = null;
+
+    if (!wasEditing) {
+      notifyExpenseAdded(currentGroupId, groupData.name, description, amount, paidBy, splitAmong);
+    }
   }).catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
 }
@@ -1239,13 +1272,17 @@ function openSettleModal() {
 function recordSettlement(fromUid, toUid, amount) {
   const fromName = groupMembersData[fromUid] ? groupMembersData[fromUid].name : 'Someone';
   const toName = groupMembersData[toUid] ? groupMembersData[toUid].name : 'Someone';
+  const description = `Settlement: ${fromName} \u2192 ${toName}`;
   db.ref('expenses/' + currentGroupId).push().set({
-    description: `Settlement: ${fromName} \u2192 ${toName}`,
+    description,
     amount, category: 'Settlement', date: new Date().toISOString().split('T')[0],
     paidBy: fromUid, splitAmong: { [toUid]: amount }, type: 'settlement',
     createdBy: currentUser.uid, createdAt: firebase.database.ServerValue.TIMESTAMP
-  }).then(() => { hideModal('settleModal'); showToast('Settlement recorded'); })
-    .catch(err => showToast(err.message, true));
+  }).then(() => {
+    hideModal('settleModal');
+    showToast('Settlement recorded');
+    notifyExpenseAdded(currentGroupId, groupData.name, description, amount, fromUid, { [toUid]: amount });
+  }).catch(err => showToast(err.message, true));
 }
 
 // ============================================================
@@ -1548,7 +1585,13 @@ function savePersonalExpense() {
     .then(() => {
       hideModal('addPersonalExpenseModal');
       showToast(editingPersonalExpenseId ? 'Expense updated' : 'Expense added');
+      const wasEditing = !!editingPersonalExpenseId;
       editingPersonalExpenseId = null;
+
+      if (!wasEditing && splitEnabled) {
+        const groupName = groupsSnapshot[splitGroupId] ? groupsSnapshot[splitGroupId].name : 'a group';
+        notifyExpenseAdded(splitGroupId, groupName, description, amount, currentUser.uid, splitAmong);
+      }
     })
     .catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Save Expense'; });
@@ -1636,4 +1679,145 @@ function confirmWalletAdd() {
   ).then(() => { hideModal('walletModal'); showToast('Wallet updated'); })
     .catch(err => showToast(err.message, true))
     .finally(() => { btn.disabled = false; btn.textContent = 'Add to Wallet'; });
+}
+
+// ============================================================
+// Notifications
+// ============================================================
+
+function sendNotification(targetUid, type, title, message, groupId) {
+  if (!targetUid) return Promise.resolve();
+  return db.ref('notifications/' + targetUid).push().set({
+    type, title, message,
+    groupId: groupId || null,
+    read: false,
+    createdAt: firebase.database.ServerValue.TIMESTAMP
+  });
+}
+
+function notifyMultiple(uids, type, title, message, groupId) {
+  return Promise.all(Array.from(new Set(uids)).map(uid => sendNotification(uid, type, title, message, groupId)));
+}
+
+// Reads the full users list to find current admins (small app scale, no index needed).
+function getAdminUids(excludeUid) {
+  return db.ref('users').once('value').then(snap => {
+    const users = snap.val() || {};
+    return Object.entries(users)
+      .filter(([uid, u]) => u && u.isAdmin && uid !== excludeUid)
+      .map(([uid]) => uid);
+  });
+}
+
+// Notifies everyone involved in an expense (paid by + split among) plus every
+// admin, whenever a new expense/settlement is created in a group.
+function notifyExpenseAdded(groupId, groupName, description, amount, paidBy, splitAmong) {
+  const involved = new Set();
+  if (typeof paidBy === 'string') involved.add(paidBy);
+  else Object.keys(paidBy || {}).forEach(uid => involved.add(uid));
+  Object.keys(splitAmong || {}).forEach(uid => involved.add(uid));
+  involved.delete(currentUser.uid);
+
+  notifyMultiple(Array.from(involved), 'expense_added', 'New expense added',
+    `"${description}" (${formatCurrency(amount)}) was added in ${groupName}.`, groupId);
+
+  getAdminUids(currentUser.uid).then(adminUids => {
+    const remainingAdmins = adminUids.filter(uid => !involved.has(uid));
+    notifyMultiple(remainingAdmins, 'expense_added', 'Expense added',
+      `${currentUserData.name} added "${description}" (${formatCurrency(amount)}) in ${groupName}.`, groupId);
+  });
+}
+
+function loadNotifications() {
+  if (notificationsRef) notificationsRef.off();
+  notificationsRef = db.ref('notifications/' + currentUser.uid);
+  notificationsRef.on('value', snap => {
+    notificationsCache = snap.val() || {};
+    renderNotificationBadge();
+  });
+}
+
+function renderNotificationBadge() {
+  const badge = document.getElementById('notificationBadge');
+  const unread = Object.values(notificationsCache).filter(n => n && !n.read).length;
+  badge.textContent = unread > 9 ? '9+' : String(unread);
+  badge.classList.toggle('hidden', unread === 0);
+}
+
+function openNotificationsModal() {
+  renderNotificationsList();
+  showModal('notificationsModal');
+}
+
+function renderNotificationsList() {
+  const listEl = document.getElementById('notificationsList');
+  const entries = Object.entries(notificationsCache).sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
+
+  if (entries.length === 0) { listEl.innerHTML = '<p class="empty-state-sm">No notifications yet.</p>'; return; }
+
+  listEl.innerHTML = entries.map(([id, n]) => `
+    <div class="list-row notif-row ${n.read ? '' : 'notif-unread'}" data-notif-id="${id}">
+      <div class="list-row-info">
+        <strong>${escapeHtml(n.title)}</strong>
+        <span>${escapeHtml(n.message)}</span>
+      </div>
+    </div>`).join('');
+
+  listEl.querySelectorAll('.notif-row').forEach(row => {
+    row.addEventListener('click', () => markNotificationRead(row.dataset.notifId));
+  });
+}
+
+function markNotificationRead(id) {
+  db.ref('notifications/' + currentUser.uid + '/' + id + '/read').set(true);
+}
+
+// ---------- Monthly summary notifications (wallet + owe/owed) ----------
+// Runs shortly after login; only actually generates notifications once per
+// calendar month, using notifications_meta to remember the last month done.
+
+function monthKeyFor(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+}
+
+function checkMonthlyNotifications() {
+  const nowKey = monthKeyFor(new Date());
+  const metaRef = db.ref('notifications_meta/' + currentUser.uid + '/lastMonthlyCheck');
+
+  metaRef.once('value').then(snap => {
+    const lastKey = snap.val();
+    if (lastKey === nowKey) return; // already generated for this month
+
+    const prevDate = new Date();
+    prevDate.setDate(1);
+    prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevKey = monthKeyFor(prevDate);
+    const prevMonthLabel = prevDate.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+    let prevMonthSpend = 0;
+    Object.values(personalExpensesCache).forEach(e => {
+      if ((e.date || '').startsWith(prevKey)) prevMonthSpend += Number(e.amount) || 0;
+    });
+
+    if (walletData !== null) {
+      sendNotification(currentUser.uid, 'monthly_wallet', 'Monthly wallet summary',
+        `Wallet balance: ${formatCurrency(walletData)}. You spent ${formatCurrency(prevMonthSpend)} in ${prevMonthLabel}.`);
+    }
+
+    let totalOwe = 0, totalOwed = 0;
+    Object.entries(groupsSnapshot).forEach(([id, group]) => {
+      if (!group) return;
+      const memberIds = Object.keys(group.members || {});
+      const balances = calculateBalances(expensesSnapshot[id] || {}, memberIds);
+      const myBalance = balances[currentUser.uid] || 0;
+      if (myBalance > 0) totalOwed += myBalance; else totalOwe += Math.abs(myBalance);
+    });
+
+    if (totalOwe > 0.01 || totalOwed > 0.01) {
+      sendNotification(currentUser.uid, 'monthly_balance', 'Monthly balance summary',
+        `You owe ${formatCurrency(totalOwe)} and are owed ${formatCurrency(totalOwed)} across your groups.`);
+    }
+
+    metaRef.set(nowKey);
+  });
 }
