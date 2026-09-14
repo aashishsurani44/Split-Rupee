@@ -62,7 +62,13 @@
 
 <!-- ================= DASHBOARD ================= -->
 <div id="screen-dashboard" class="screen">
-  <header class="topbar"><h1>Groups</h1></header>
+  <header class="topbar" style="justify-content:space-between;">
+    <h1>Groups</h1>
+    <button id="notificationsBtn" class="icon-btn" aria-label="Notifications" style="position:relative;">
+      🔔
+      <span id="notificationBadge" class="notif-badge hidden">0</span>
+    </button>
+  </header>
   <main class="page-content">
     <div class="balance-card">
       <div class="balance-card-head"><span>Total balance</span></div>
@@ -274,9 +280,11 @@
       <div class="field-label-row">
         <span class="field-label" style="margin:0;">Paid by</span>
         <label class="checkbox-label-row-sm">
-        <input type="checkbox" id="paidByMultipleToggle" />Multiple</label>
+          <input type="checkbox" id="paidByMultipleToggle" />
+          Multiple
+        </label>
       </div>
-        <select id="expPaidBy" class="input-field"></select>
+      <select id="expPaidBy" class="input-field"></select>
       <div id="paidByMembersContainer" class="split-members-list hidden"></div>
 
       <label class="field-label">Split</label>
@@ -375,6 +383,14 @@
       </div>
     </div>
     <div class="modal-body" id="personalExpenseDetailBody"></div>
+  </div>
+</div>
+
+<!-- ================= NOTIFICATIONS MODAL ================= -->
+<div id="notificationsModal" class="modal-overlay hidden">
+  <div class="modal-sheet modal-sheet-tall">
+    <div class="modal-header"><h3>Notifications</h3><button class="modal-close" id="closeNotificationsModal">✕</button></div>
+    <div class="modal-body"><div id="notificationsList"></div></div>
   </div>
 </div>
 
