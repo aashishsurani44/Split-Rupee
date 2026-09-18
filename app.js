@@ -77,6 +77,7 @@ let notificationsRef = null;
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    initBackButtonHandling();
   if (FIREBASE_NOT_CONFIGURED) {
     showScreen('setup');
     return;
@@ -84,6 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   wireStaticEvents();
 
+  document.getElementById('enablePushBtn').addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  Notification.requestPermission().then(() => updatePushPermissionUI());
+  });
   auth.onAuthStateChanged(user => {
     if (!user) {
       teardownListeners();
@@ -124,6 +129,54 @@ function showScreen(name) {
     btn.classList.toggle('active', btn.dataset.screen === name);
   });
   window.scrollTo(0, 0);
+}
+
+// ============================================================
+// Hardware back button
+// ------------------------------------------------------------
+// Keeps one sentinel entry in the history stack. Every back press pops it,
+// we act on the app's current state, then push it again so the next press
+// is captured too. Only on a second quick press from the home screen do we
+// stop re-pushing and let the browser/OS actually leave the app.
+// ============================================================
+
+let lastBackPressTime = 0;
+
+function pushHistorySentinel() {
+  history.pushState({ splitRupee: true }, '');
+}
+
+function initBackButtonHandling() {
+  pushHistorySentinel();
+  window.addEventListener('popstate', handleBackButton);
+}
+
+function handleBackButton() {
+  // 1. A modal is open → close the topmost one.
+  const openModals = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden)'));
+  if (openModals.length > 0) {
+    openModals[openModals.length - 1].classList.add('hidden');
+    pushHistorySentinel();
+    return;
+  }
+
+  // 2. Not on the home screen → step back one level.
+  const active = document.querySelector('.screen.active');
+  const activeId = active ? active.id : '';
+
+  if (activeId === 'screen-group') { leaveGroupScreen(); pushHistorySentinel(); return; }
+  if (activeId === 'screen-admin') { showScreen('account'); pushHistorySentinel(); return; }
+  if (activeId === 'screen-account' || activeId === 'screen-personal') { showScreen('dashboard'); pushHistorySentinel(); return; }
+
+  // 3. On the home screen → require a second press within 2s to exit.
+  const now = Date.now();
+  if (now - lastBackPressTime < 2000) {
+    history.back(); // don't re-push: let this one through and leave the app
+    return;
+  }
+  lastBackPressTime = now;
+  showToast('Press back again to exit');
+  pushHistorySentinel();
 }
 
 // ============================================================
@@ -1728,11 +1781,30 @@ function notifyExpenseAdded(groupId, groupName, description, amount, paidBy, spl
   });
 }
 
+let seenNotificationIds = new Set();
+let notificationsFirstLoad = true;
+
 function loadNotifications() {
   if (notificationsRef) notificationsRef.off();
   notificationsRef = db.ref('notifications/' + currentUser.uid);
+  seenNotificationIds = new Set();
+  notificationsFirstLoad = true;
+
   notificationsRef.on('value', snap => {
-    notificationsCache = snap.val() || {};
+    const newCache = snap.val() || {};
+
+    if (!notificationsFirstLoad && 'Notification' in window && Notification.permission === 'granted') {
+      Object.entries(newCache).forEach(([id, n]) => {
+        if (!seenNotificationIds.has(id) && n && !n.read) {
+          const nativeNotif = new Notification(n.title, { body: n.message, tag: id });
+          nativeNotif.onclick = () => { window.focus(); nativeNotif.close(); };
+        }
+      });
+    }
+    Object.keys(newCache).forEach(id => seenNotificationIds.add(id));
+    notificationsFirstLoad = false;
+
+    notificationsCache = newCache;
     renderNotificationBadge();
   });
 }
@@ -1744,7 +1816,14 @@ function renderNotificationBadge() {
   badge.classList.toggle('hidden', unread === 0);
 }
 
+function updatePushPermissionUI() {
+  const btn = document.getElementById('enablePushBtn');
+  if (!('Notification' in window)) { btn.classList.add('hidden'); return; }
+  btn.classList.toggle('hidden', Notification.permission !== 'default');
+}
+
 function openNotificationsModal() {
+  updatePushPermissionUI();
   renderNotificationsList();
   showModal('notificationsModal');
 }
