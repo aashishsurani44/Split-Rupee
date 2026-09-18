@@ -429,10 +429,18 @@ function wireStaticEvents() {
   document.getElementById('closeWalletModal').addEventListener('click', () => hideModal('walletModal'));
   document.getElementById('confirmWalletAddBtn').addEventListener('click', confirmWalletAdd);
 
-  // --- Notifications ---
-  document.getElementById('notificationsBtn').addEventListener('click', openNotificationsModal);
-  document.getElementById('closeNotificationsModal').addEventListener('click', () => hideModal('notificationsModal'));
-}
+      // --- Notifications ---
+  const bind = (id, handler) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', handler);
+    else console.warn('Split-Rupee: missing element #' + id);
+  };
+  bind('notificationsBtn', openNotificationsModal);
+  bind('closeNotificationsModal', () => hideModal('notificationsModal'));
+  bind('enablePushBtn', () => {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(() => updatePushPermissionUI());
+  });
 
 function initAppShell(userData) {
   document.getElementById('accountName').textContent = userData.name;
