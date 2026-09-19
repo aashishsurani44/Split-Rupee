@@ -1804,8 +1804,13 @@ function loadNotifications() {
     if (!notificationsFirstLoad && 'Notification' in window && Notification.permission === 'granted') {
       Object.entries(newCache).forEach(([id, n]) => {
         if (!seenNotificationIds.has(id) && n && !n.read) {
-          const nativeNotif = new Notification(n.title, { body: n.message, tag: id });
-          nativeNotif.onclick = () => { window.focus(); nativeNotif.close(); };
+          try {
+            const nativeNotif = new Notification(n.title, { body: n.message, tag: id });
+            nativeNotif.onclick = () => { window.focus(); nativeNotif.close(); };
+          } catch (e) {
+            // Mobile Chrome requires a Service Worker for native notifications;
+            // silently skip it there — the in-app badge/list still works.
+          }
         }
       });
     }
