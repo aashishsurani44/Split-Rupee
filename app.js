@@ -85,10 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   wireStaticEvents();
 
-  document.getElementById('enablePushBtn').addEventListener('click', () => {
-  if (!('Notification' in window)) return;
-  Notification.requestPermission().then(() => updatePushPermissionUI());
-  });
   auth.onAuthStateChanged(user => {
     if (!user) {
       teardownListeners();
@@ -441,6 +437,7 @@ function wireStaticEvents() {
     if (!('Notification' in window)) return;
     Notification.requestPermission().then(() => updatePushPermissionUI());
   });
+}
 
 function initAppShell(userData) {
   document.getElementById('accountName').textContent = userData.name;
